@@ -1,0 +1,6 @@
+.Build/
+.DerivedData/
+DerivedData/
+*.xcresult
+.DS_Store
+.cursor/
