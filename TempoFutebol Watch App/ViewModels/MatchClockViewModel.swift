@@ -19,6 +19,7 @@ final class MatchClockViewModel: ObservableObject {
 
     private var startedAt: Date?
     private var elapsedBeforeStart: TimeInterval = 0
+    private var lastProcessedElapsedSecond: Int?
     private let userDefaults: UserDefaults
     private let now: () -> Date
     private let haptics: MatchHapticPlaying
@@ -56,7 +57,7 @@ final class MatchClockViewModel: ObservableObject {
         case .halfFinished:
             return PrimaryActionPresentation(title: "2nd Half", iconName: "play.fill", tintName: "green")
         case .matchFinished:
-            return PrimaryActionPresentation(title: "New Match", iconName: "plus", tintName: "green")
+            return PrimaryActionPresentation(title: "New", iconName: "plus", tintName: "green")
         }
     }
 
@@ -74,6 +75,21 @@ final class MatchClockViewModel: ObservableObject {
             mainLabel: isAddedTime ? "Added time" : "Time left",
             addedTime: addedTime
         )
+    }
+
+    func processTick(at date: Date) {
+        guard status == .running else {
+            lastProcessedElapsedSecond = nil
+            return
+        }
+
+        let currentElapsedSecond = max(Int(elapsed(at: date).rounded(.down)), 0)
+        let previousElapsedSecond = lastProcessedElapsedSecond ?? max(currentElapsedSecond - 1, 0)
+
+        guard currentElapsedSecond != previousElapsedSecond else { return }
+
+        playMilestoneHaptic(previousElapsedSecond: previousElapsedSecond, currentElapsedSecond: currentElapsedSecond)
+        lastProcessedElapsedSecond = currentElapsedSecond
     }
 
     func runPrimaryAction() {
@@ -99,6 +115,7 @@ final class MatchClockViewModel: ObservableObject {
         } else {
             status = .matchFinished
             haptics.play(.whistle)
+            haptics.play(.matchFinished)
         }
         persistSnapshot()
     }
@@ -108,12 +125,14 @@ final class MatchClockViewModel: ObservableObject {
         status = .ready
         startedAt = nil
         elapsedBeforeStart = 0
+        lastProcessedElapsedSecond = nil
         persistSnapshot()
     }
 
     private func start() {
         status = .running
         startedAt = now()
+        lastProcessedElapsedSecond = max(Int(elapsedBeforeStart.rounded(.down)), 0)
         haptics.play(.start)
         persistSnapshot()
     }
@@ -134,6 +153,7 @@ final class MatchClockViewModel: ObservableObject {
         status = .running
         startedAt = now()
         elapsedBeforeStart = 0
+        lastProcessedElapsedSecond = 0
         haptics.play(.start)
         persistSnapshot()
     }
@@ -149,6 +169,24 @@ final class MatchClockViewModel: ObservableObject {
         }
 
         return elapsedBeforeStart + (date ?? now()).timeIntervalSince(startedAt)
+    }
+
+    func playMilestoneHaptic(previousElapsedSecond: Int, currentElapsedSecond: Int) {
+        let checkpointSeconds = [600, 1200, 1800, 2400, 2700]
+        if checkpointSeconds.contains(where: { previousElapsedSecond < $0 && currentElapsedSecond >= $0 }) {
+            haptics.play(.timeCheckpoint)
+        }
+
+        let previousExtraMinute = extraMinute(at: previousElapsedSecond)
+        let currentExtraMinute = extraMinute(at: currentElapsedSecond)
+        if currentExtraMinute > previousExtraMinute, currentExtraMinute > 0 {
+            haptics.play(.extraTimeMinute)
+        }
+    }
+
+    func extraMinute(at elapsedSecond: Int) -> Int {
+        guard elapsedSecond >= Int(Self.halfDuration) else { return 0 }
+        return (elapsedSecond - Int(Self.halfDuration)) / 60
     }
 }
 

@@ -110,7 +110,44 @@ final class MatchClockViewModelTests: XCTestCase {
 
         advanceToAddedTime()
         viewModel.whistle()
-        XCTAssertEqual(haptics.events, [.start, .halfTime, .start, .whistle])
+        XCTAssertEqual(haptics.events, [.start, .halfTime, .start, .whistle, .matchFinished])
+    }
+
+    func testPlaysRegularTimeCheckpointHaptics() {
+        let haptics = RecordingHapticPlayer()
+        let viewModel = makeViewModel(haptics: haptics)
+        let checkpoints: [TimeInterval] = [600, 1200, 1800, 2400, 2700]
+
+        viewModel.runPrimaryAction()
+        haptics.reset()
+
+        for checkpoint in checkpoints {
+            currentDate = Date(timeIntervalSince1970: checkpoint)
+            viewModel.processTick(at: currentDate)
+        }
+
+        XCTAssertEqual(haptics.events, Array(repeating: .timeCheckpoint, count: checkpoints.count))
+    }
+
+    func testPlaysEveryExtraTimeMinuteHaptic() {
+        let haptics = RecordingHapticPlayer()
+        let viewModel = makeViewModel(haptics: haptics)
+
+        viewModel.runPrimaryAction()
+        haptics.reset()
+
+        currentDate = Date(timeIntervalSince1970: MatchClockViewModel.halfDuration)
+        viewModel.processTick(at: currentDate)
+        haptics.reset()
+
+        currentDate = Date(timeIntervalSince1970: MatchClockViewModel.halfDuration + 60)
+        viewModel.processTick(at: currentDate)
+        currentDate = Date(timeIntervalSince1970: MatchClockViewModel.halfDuration + 120)
+        viewModel.processTick(at: currentDate)
+        currentDate = Date(timeIntervalSince1970: MatchClockViewModel.halfDuration + 180)
+        viewModel.processTick(at: currentDate)
+
+        XCTAssertEqual(haptics.events, [.extraTimeMinute, .extraTimeMinute, .extraTimeMinute])
     }
 
     private func makeViewModel(haptics: MatchHapticPlaying? = nil) -> MatchClockViewModel {
@@ -136,5 +173,9 @@ private final class RecordingHapticPlayer: MatchHapticPlaying {
 
     func play(_ event: MatchHapticEvent) {
         events.append(event)
+    }
+
+    func reset() {
+        events.removeAll()
     }
 }

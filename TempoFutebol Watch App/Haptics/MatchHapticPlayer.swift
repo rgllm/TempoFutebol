@@ -9,8 +9,12 @@ import WatchKit
 
 enum MatchHapticEvent: Equatable {
     case start
+    case timeCheckpoint
+    case extraTimeMinute
     case whistle
     case halfTime
+    case matchFinished
+    case buttonTap
 }
 
 protocol MatchHapticPlaying {
@@ -28,10 +32,18 @@ private extension MatchHapticEvent {
         switch self {
         case .start:
             return .start
+        case .timeCheckpoint:
+            return .click
+        case .extraTimeMinute:
+            return .directionUp
         case .whistle:
             return .success
         case .halfTime:
             return .notification
+        case .matchFinished:
+            return .notification
+        case .buttonTap:
+            return .click
         }
     }
 }

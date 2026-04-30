@@ -1,8 +1,15 @@
-# TempoFutebol
+<h1>
+  <img src="assets/icon.png" alt="TempoFutebol app icon" width="28" style="vertical-align: middle;" />
+  TempoFutebol
+</h1>
 
 TempoFutebol is a lightweight watchOS app to run a football (soccer) match clock directly from Apple Watch.
 
 It supports first/second half flow, pause/resume controls, whistle transitions, and added-time display.
+
+<p align="center">
+  <img src="assets/screenshot.png" alt="TempoFutebol Apple Watch screenshot" width="320" />
+</p>
 
 ## Features
 
@@ -12,6 +19,7 @@ It supports first/second half flow, pause/resume controls, whistle transitions, 
 - Half-time transition (`1st Half` -> `2nd Half`)
 - Match state persistence across app relaunch
 - Battery-friendlier ticking (per-second updates only while running)
+- Heart-rate pill from HealthKit samples (when permission is granted)
 
 ## Tech Stack
 
