@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(\.isLuminanceReduced) private var isLuminanceReduced
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var clock: MatchClockViewModel
     @StateObject private var heartRate: HeartRateObservable
     @State private var isResetConfirmationPresented = false
@@ -24,12 +26,21 @@ struct ContentView: View {
             Group {
                 if clock.shouldTick {
                     TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                        let _ = clock.processTick(at: timeline.date)
-                        mainContent(clock.displayState(at: timeline.date))
+                        mainContent(clock.displayState(at: timeline.date), at: timeline.date)
+                            .task(id: timeline.date) {
+                                clock.processTick(at: timeline.date)
+                            }
                     }
                 } else {
                     mainContent(clock.displayState())
                 }
+            }
+            .onAppear {
+                clock.syncRuntimeSession()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                clock.syncRuntimeSession()
             }
             .task {
                 await heartRate.requestAuthorization()
@@ -39,16 +50,18 @@ struct ContentView: View {
                 heartRate.stopObserving()
             }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        handleTap { isResetConfirmationPresented = true }
-                    } label: {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(.white)
+                if !isLuminanceReduced {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            handleTap { isResetConfirmationPresented = true }
+                        } label: {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.white)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Reset")
                     }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("Reset")
                 }
             }
             .confirmationDialog(
@@ -64,25 +77,20 @@ struct ContentView: View {
         }
     }
 
-    private func mainContent(_ display: MatchClockDisplayState) -> some View {
+    @ViewBuilder
+    private func mainContent(_ display: MatchClockDisplayState, at date: Date? = nil) -> some View {
+        if isLuminanceReduced {
+            alwaysOnContent(display)
+        } else {
+            activeContent(display, at: date)
+        }
+    }
+
+    private func activeContent(_ display: MatchClockDisplayState, at date: Date?) -> some View {
         VStack(spacing: 6) {
-            header(display)
+            header(display, at: date)
 
-            VStack(spacing: 2) {
-                if let caption = timeCaption(for: display) {
-                    Text(caption)
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-
-                Text(display.isAddedTime ? "+\(format(display.mainTime))" : format(display.mainTime))
-                    .font(.system(size: 44, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(display.isAddedTime ? .orange : .white)
-                    .minimumScaleFactor(0.55)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 2)
+            timeBlock(display, isDimmed: false)
 
             heartRatePill
 
@@ -90,6 +98,44 @@ struct ContentView: View {
         }
         .padding(.horizontal, 6)
         .scenePadding()
+    }
+
+    private func alwaysOnContent(_ display: MatchClockDisplayState) -> some View {
+        VStack(spacing: 5) {
+            Text(display.halfTitle)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.72))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
+            Text(alwaysOnStatusLine(for: display))
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            timeBlock(display, isDimmed: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 6)
+        .scenePadding()
+    }
+
+    private func timeBlock(_ display: MatchClockDisplayState, isDimmed: Bool) -> some View {
+        VStack(spacing: 2) {
+            if !isDimmed, let caption = timeCaption(for: display) {
+                Text(caption)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(display.isAddedTime ? "+\(format(display.mainTime))" : format(display.mainTime))
+                .font(.system(size: isDimmed ? 48 : 44, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(timeColor(for: display, isDimmed: isDimmed))
+                .minimumScaleFactor(0.55)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, isDimmed ? 0 : 2)
     }
 
     private var heartRatePill: some View {
@@ -113,7 +159,7 @@ struct ContentView: View {
         .allowsHitTesting(false)
     }
 
-    private func header(_ display: MatchClockDisplayState) -> some View {
+    private func header(_ display: MatchClockDisplayState, at date: Date?) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(display.halfTitle)
                 .font(.title3.weight(.bold))
@@ -121,10 +167,10 @@ struct ContentView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
 
-            if let statusLine = compactStatusLine {
+            if let statusLine = activeStatusLine(at: date) {
                 Text(statusLine)
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(clock.isRuntimeLimitWarningVisible ? .yellow : .secondary)
                     .lineLimit(1)
             }
         }
@@ -144,6 +190,22 @@ struct ContentView: View {
         }
     }
 
+    private func activeStatusLine(at date: Date?) -> String? {
+        if clock.isRuntimeLimitWarningVisible {
+            return "Awake ends soon"
+        }
+
+        return clock.runtimeDiagnosticsTitle(at: date) ?? compactStatusLine
+    }
+
+    private func alwaysOnStatusLine(for display: MatchClockDisplayState) -> String {
+        if display.isAddedTime {
+            return "Extra"
+        }
+
+        return display.statusTitle
+    }
+
     private func timeCaption(for display: MatchClockDisplayState) -> String? {
         switch clock.status {
         case .running:
@@ -157,35 +219,65 @@ struct ContentView: View {
         }
     }
 
+    private func timeColor(for display: MatchClockDisplayState, isDimmed: Bool) -> Color {
+        if display.isAddedTime {
+            return isDimmed ? .orange.opacity(0.55) : .orange
+        }
+
+        return isDimmed ? .white.opacity(0.68) : .white
+    }
+
     private var actionRow: some View {
         let action = clock.primaryAction
+        let hasSecondaryAction = clock.canStartExtraTime || clock.canWhistle
         return HStack(spacing: 8) {
             Button {
                 handleTap { clock.runPrimaryAction() }
             } label: {
-                Label(action.title, systemImage: action.iconName)
-                    .labelStyle(.titleAndIcon)
-                    .frame(maxWidth: .infinity, minHeight: 52)
-                    .contentShape(Rectangle())
+                actionButtonLabel(title: action.title, iconName: action.iconName, isCompact: hasSecondaryAction)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .tint(tint(for: action.tintName))
 
-            if clock.canWhistle {
+            if clock.canStartExtraTime {
+                Button {
+                    handleTap { clock.startExtraTime() }
+                } label: {
+                    actionButtonLabel(title: "Extra", iconName: "forward.end.fill", isCompact: true)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(.orange)
+                .accessibilityLabel("Start extra time")
+            } else if clock.canWhistle {
                 Button {
                     handleTap { clock.whistle() }
                 } label: {
-                    Label("Whistle", systemImage: "flag.checkered")
-                        .labelStyle(.titleAndIcon)
-                        .frame(maxWidth: .infinity, minHeight: 52)
-                        .contentShape(Rectangle())
+                    actionButtonLabel(title: "End", iconName: "flag.checkered", isCompact: true)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .tint(.orange)
+                .accessibilityLabel("Whistle")
             }
         }
+    }
+
+    private func actionButtonLabel(title: String, iconName: String, isCompact: Bool) -> some View {
+        HStack(spacing: isCompact ? 5 : 7) {
+            Image(systemName: iconName)
+                .font(.system(size: isCompact ? 15 : 18, weight: .bold))
+
+            Text(title)
+                .font(.system(size: isCompact ? 16 : 20, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .allowsTightening(true)
+        }
+        .frame(maxWidth: .infinity, minHeight: 52)
+        .padding(.horizontal, 6)
+        .contentShape(Rectangle())
     }
 
     private func handleTap(_ action: () -> Void) {
@@ -216,6 +308,7 @@ struct ContentView: View {
 private struct PreviewClockSnapshot: Codable {
     let half: MatchHalf
     let status: MatchClockStatus
+    let phase: MatchClockPhase
     let startedAt: Date?
     let elapsedBeforeStart: TimeInterval
 }
@@ -225,7 +318,8 @@ extension ContentView {
     static func previewModel(
         elapsedIntoHalf: TimeInterval,
         half: MatchHalf = .first,
-        status: MatchClockStatus = .running
+        status: MatchClockStatus = .running,
+        phase: MatchClockPhase = .regulation
     ) -> MatchClockViewModel {
         let suiteName = "TempoFutebol.preview.\(UUID().uuidString)"
         guard let userDefaults = UserDefaults(suiteName: suiteName) else {
@@ -237,6 +331,7 @@ extension ContentView {
         let snapshot = PreviewClockSnapshot(
             half: half,
             status: status,
+            phase: phase,
             startedAt: t0,
             elapsedBeforeStart: 0
         )
@@ -248,6 +343,7 @@ extension ContentView {
             userDefaults: userDefaults,
             now: { t0.addingTimeInterval(elapsedIntoHalf) },
             haptics: PreviewNoOpHaptics(),
+            runtimeSession: PreviewNoOpRuntimeSession(),
             reloadComplications: {}
         )
     }
@@ -255,6 +351,15 @@ extension ContentView {
 
 private struct PreviewNoOpHaptics: MatchHapticPlaying {
     func play(_ event: MatchHapticEvent) {}
+}
+
+private final class PreviewNoOpRuntimeSession: MatchRuntimeSessionControlling {
+    let snapshot: MatchRuntimeSessionSnapshot = .inactive
+    var onSnapshotChange: ((MatchRuntimeSessionSnapshot) -> Void)?
+
+    func startKeepingAppActive() {}
+
+    func stopKeepingAppActive() {}
 }
 
 struct ContentView_Previews: PreviewProvider {
@@ -266,8 +371,12 @@ struct ContentView_Previews: PreviewProvider {
             ContentView(clock: ContentView.previewModel(elapsedIntoHalf: 35 * 60))
                 .previewDisplayName("35m elapsed")
 
-            ContentView(clock: ContentView.previewModel(elapsedIntoHalf: 46 * 60))
+            ContentView(clock: ContentView.previewModel(elapsedIntoHalf: 46 * 60, phase: .extraTime))
                 .previewDisplayName("Added time")
+
+            ContentView(clock: ContentView.previewModel(elapsedIntoHalf: 35 * 60))
+                .environment(\.isLuminanceReduced, true)
+                .previewDisplayName("Always On")
 
             #if DEBUG
             ContentView(heartRate: MockHeartRateService(fixedBPM: 132))

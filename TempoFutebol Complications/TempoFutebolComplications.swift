@@ -135,13 +135,14 @@ struct MatchClockComplicationState {
         }
 
         let elapsed = snapshot.elapsed(at: date)
+        let phase = snapshot.phase ?? snapshot.inferredPhase(at: date, halfDuration: Self.halfDuration)
         let addedTime = max(elapsed - Self.halfDuration, 0)
         let remaining = max(Self.halfDuration - elapsed, 0)
         let halfTitle = snapshot.halfTitle
 
         title = halfTitle
         shortHalf = snapshot.shortHalfTitle
-        isAddedTime = addedTime > 0
+        isAddedTime = phase == .extraTime
         progress = min(max(elapsed / Self.halfDuration, 0), 1)
 
         switch snapshot.status {
@@ -191,9 +192,15 @@ enum StoredMatchClockStatus: String, Codable {
     case matchFinished
 }
 
+enum StoredMatchClockPhase: String, Codable {
+    case regulation
+    case extraTime
+}
+
 struct StoredMatchClockSnapshot: Codable {
     let half: Int
     let status: StoredMatchClockStatus
+    let phase: StoredMatchClockPhase?
     let startedAt: Date?
     let elapsedBeforeStart: TimeInterval
 
@@ -211,6 +218,15 @@ struct StoredMatchClockSnapshot: Codable {
         }
 
         return elapsedBeforeStart + date.timeIntervalSince(startedAt)
+    }
+
+    func inferredPhase(at date: Date, halfDuration: TimeInterval) -> StoredMatchClockPhase {
+        switch status {
+        case .running, .paused, .halfFinished, .matchFinished:
+            return elapsed(at: date) >= halfDuration ? .extraTime : .regulation
+        case .ready:
+            return .regulation
+        }
     }
 }
 

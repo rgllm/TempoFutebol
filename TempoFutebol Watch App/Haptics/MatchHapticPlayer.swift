@@ -15,6 +15,7 @@ enum MatchHapticEvent: Equatable {
     case halfTime
     case matchFinished
     case buttonTap
+    case runtimeLimitWarning
 }
 
 protocol MatchHapticPlaying {
@@ -44,6 +45,8 @@ private extension MatchHapticEvent {
             return .notification
         case .buttonTap:
             return .click
+        case .runtimeLimitWarning:
+            return .retry
         }
     }
 }

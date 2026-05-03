@@ -68,6 +68,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		B8741D702FA215BA00FA907C /* Exceptions for "TempoFutebol Watch App" folder in "TempoFutebol Watch App" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = B8741D3A2FA215B600FA907C /* TempoFutebol Watch App */;
+		};
 		B8741D6F2FA215B900FA907C /* Exceptions for "TempoFutebol Complications" folder in "TempoFutebol Complications" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -80,6 +87,9 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		B8741D3F2FA215B600FA907C /* TempoFutebol Watch App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				B8741D702FA215BA00FA907C /* Exceptions for "TempoFutebol Watch App" folder in "TempoFutebol Watch App" target */,
+			);
 			path = "TempoFutebol Watch App";
 			sourceTree = "<group>";
 		};
@@ -483,12 +493,8 @@
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = F86KMMECSR;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = TempoFutebol;
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Show your live heart rate during a match.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "TempoFutebol does not write Health data. This key is included for HealthKit compliance.";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKWatchOnly = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "TempoFutebol Watch App/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -520,12 +526,8 @@
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = F86KMMECSR;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = TempoFutebol;
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Show your live heart rate during a match.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "TempoFutebol does not write Health data. This key is included for HealthKit compliance.";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKWatchOnly = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "TempoFutebol Watch App/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

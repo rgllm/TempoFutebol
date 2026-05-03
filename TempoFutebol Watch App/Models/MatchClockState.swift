@@ -62,6 +62,11 @@ enum MatchClockStatus: String, Codable, Equatable {
     }
 }
 
+enum MatchClockPhase: String, Codable, Equatable {
+    case regulation
+    case extraTime
+}
+
 struct MatchClockDisplayState {
     let halfTitle: String
     let statusTitle: String

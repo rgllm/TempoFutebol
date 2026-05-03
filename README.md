@@ -14,12 +14,15 @@ It supports first/second half flow, pause/resume controls, whistle transitions, 
 ## Features
 
 - Match timer with `45:00` regulation time per half
-- Automatic added-time mode after regulation time
+- Whistle-controlled added-time phase after regulation time
 - Start, pause, resume, whistle, and reset controls
-- Half-time transition (`1st Half` -> `2nd Half`)
+- Phase transitions (`regulation` -> `added time` -> half-time/full-time)
 - Match state persistence across app relaunch
 - Battery-friendlier ticking (per-second updates only while running)
 - Heart-rate pill from HealthKit samples (when permission is granted)
+- Extended runtime session while the match clock is running, keeping the app frontmost for supported watchOS sessions
+- Always On display layout with a simplified time-only reduced-luminance view
+- Compact runtime status indicator with a one-time haptic warning near the runtime limit
 
 ## Tech Stack
 
@@ -48,6 +51,13 @@ It supports first/second half flow, pause/resume controls, whistle transitions, 
 3. Choose a watchOS simulator/device destination.
 4. Run the app (`Cmd + R`).
 
+## Real Watch Always On Checklist
+
+- Enable Always On in Apple Watch Settings.
+- Set Return to Clock to `1 hour` for TempoFutebol.
+- Start a match on the real watch, lower your wrist, and confirm the simplified time-only screen stays visible.
+- Leave the timer running past 55 minutes and confirm the subtle awake-limit warning appears once.
+
 ## Testing
 
 The repository includes unit tests for core match-clock behavior:
@@ -56,10 +66,10 @@ The repository includes unit tests for core match-clock behavior:
 - half and match completion rules
 - reset behavior
 - persistence restore behavior
+- extended runtime session status and runtime-limit warning behavior
 
 Run tests from Xcode (`Cmd + U`) on the `TempoFutebol Watch App` scheme.
 
 ## Contributing
 
 Issues and pull requests are welcome. Keep changes focused, small, and validated with tests.
-
