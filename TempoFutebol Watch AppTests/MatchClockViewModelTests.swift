@@ -456,6 +456,132 @@ final class MatchClockViewModelTests: XCTestCase {
         XCTAssertEqual(haptics.events, [.extraTimeMinute, .extraTimeMinute, .extraTimeMinute])
     }
 
+    func testHalfTimeBreakStartsAfterFirstHalfAndFiresHapticOnce() {
+        let haptics = RecordingHapticPlayer()
+        let viewModel = makeViewModel(haptics: haptics)
+
+        viewModel.runPrimaryAction()
+        advanceToAddedTime()
+        viewModel.whistle()
+        viewModel.whistle()
+        haptics.reset()
+
+        XCTAssertEqual(viewModel.status, .halfFinished)
+        XCTAssertTrue(viewModel.shouldTick)
+        XCTAssertTrue(viewModel.displayState().isBreakTimer)
+        XCTAssertEqual(viewModel.displayState().mainTime, MatchClockViewModel.halfTimeBreakDuration)
+        XCTAssertEqual(viewModel.halfTimeBreakStatusTitle(), "Break · 15m")
+
+        currentDate = currentDate.addingTimeInterval(MatchClockViewModel.halfTimeBreakDuration)
+        viewModel.processTick(at: currentDate)
+        viewModel.processTick(at: currentDate)
+
+        XCTAssertEqual(haptics.events, [.halfTimeBreakFinished])
+        XCTAssertFalse(viewModel.shouldTick)
+        XCTAssertTrue(viewModel.displayState().isBreakFinished)
+        XCTAssertEqual(viewModel.displayState().mainTime, 0)
+        XCTAssertEqual(viewModel.halfTimeBreakStatusTitle(), "Break done")
+    }
+
+    func testScorePersistsAndResetClearsCurrentScore() {
+        var viewModel: MatchClockViewModel? = makeViewModel()
+
+        viewModel?.incrementHomeScore()
+        viewModel?.incrementHomeScore()
+        viewModel?.incrementAwayScore()
+        viewModel = nil
+
+        let restored = makeViewModel()
+        XCTAssertEqual(restored.score, MatchScore(home: 2, away: 1))
+
+        restored.resetMatch()
+
+        XCTAssertEqual(restored.score, .zero)
+    }
+
+    func testMatchSummaryCapturesScoreAddedTimeTotalAndHeartRate() {
+        let viewModel = makeViewModel()
+
+        viewModel.incrementHomeScore()
+        viewModel.incrementHomeScore()
+        viewModel.incrementAwayScore()
+        viewModel.runPrimaryAction()
+        viewModel.recordHeartRate(120)
+        viewModel.recordHeartRate(130)
+
+        advanceToAddedTime(70)
+        viewModel.whistle()
+        viewModel.whistle()
+        viewModel.runPrimaryAction()
+
+        currentDate = currentDate.addingTimeInterval(MatchClockViewModel.halfDuration + 125)
+        viewModel.recordHeartRate(140)
+        viewModel.whistle()
+        viewModel.whistle()
+
+        let summary = viewModel.lastSummary
+        XCTAssertEqual(viewModel.status, .matchFinished)
+        XCTAssertEqual(summary?.score, MatchScore(home: 2, away: 1))
+        XCTAssertEqual(summary?.firstHalfAddedTime, 70)
+        XCTAssertEqual(summary?.secondHalfAddedTime, 125)
+        XCTAssertEqual(summary?.totalMatchDuration, (MatchClockViewModel.halfDuration * 2) + 195)
+        XCTAssertEqual(summary?.averageHeartRate, 130)
+        XCTAssertEqual(summary?.maxHeartRate, 140)
+    }
+
+    func testScoreCorrectionAfterFullTimeUpdatesSummaryScore() {
+        let viewModel = makeViewModel()
+
+        viewModel.runPrimaryAction()
+        advanceToAddedTime()
+        viewModel.whistle()
+        viewModel.whistle()
+        viewModel.runPrimaryAction()
+        advanceToAddedTime()
+        viewModel.whistle()
+        viewModel.whistle()
+
+        XCTAssertEqual(viewModel.lastSummary?.score, .zero)
+
+        viewModel.incrementHomeScore()
+
+        XCTAssertEqual(viewModel.score, MatchScore(home: 1, away: 0))
+        XCTAssertEqual(viewModel.lastSummary?.score, MatchScore(home: 1, away: 0))
+    }
+
+    func testCustomRegularCheckpointHaptics() {
+        let haptics = RecordingHapticPlayer()
+        let viewModel = makeViewModel(haptics: haptics)
+
+        viewModel.setCheckpointMinute(10, isEnabled: false)
+        viewModel.runPrimaryAction()
+        haptics.reset()
+
+        currentDate = Date(timeIntervalSince1970: 10 * 60)
+        viewModel.processTick(at: currentDate)
+        currentDate = Date(timeIntervalSince1970: 20 * 60)
+        viewModel.processTick(at: currentDate)
+
+        XCTAssertEqual(haptics.events, [.timeCheckpoint])
+    }
+
+    func testCanDisableExtraTimeMinuteHaptics() {
+        let haptics = RecordingHapticPlayer()
+        let viewModel = makeViewModel(haptics: haptics)
+
+        viewModel.setExtraTimeMinuteAlertsEnabled(false)
+        viewModel.runPrimaryAction()
+        currentDate = Date(timeIntervalSince1970: MatchClockViewModel.halfDuration)
+        viewModel.processTick(at: currentDate)
+        viewModel.whistle()
+        haptics.reset()
+
+        currentDate = Date(timeIntervalSince1970: MatchClockViewModel.halfDuration + 60)
+        viewModel.processTick(at: currentDate)
+
+        XCTAssertTrue(haptics.events.isEmpty)
+    }
+
     private func makeViewModel(
         haptics: MatchHapticPlaying? = nil,
         runtimeSession: MatchRuntimeSessionControlling? = nil

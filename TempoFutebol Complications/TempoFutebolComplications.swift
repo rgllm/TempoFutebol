@@ -113,6 +113,7 @@ struct MatchClockComplicationView: View {
 
 struct MatchClockComplicationState {
     static let halfDuration: TimeInterval = 45 * 60
+    static let halfTimeBreakDuration: TimeInterval = 15 * 60
 
     let title: String
     let subtitle: String
@@ -139,11 +140,17 @@ struct MatchClockComplicationState {
         let addedTime = max(elapsed - Self.halfDuration, 0)
         let remaining = max(Self.halfDuration - elapsed, 0)
         let halfTitle = snapshot.halfTitle
+        let scorePrefix = snapshot.score?.compactTitle
+        let breakRemaining = snapshot.halfTimeBreakRemaining(at: date, duration: Self.halfTimeBreakDuration)
 
-        title = halfTitle
-        shortHalf = snapshot.shortHalfTitle
-        isAddedTime = phase == .extraTime
-        progress = min(max(elapsed / Self.halfDuration, 0), 1)
+        title = snapshot.status == .halfFinished ? "Half-time" : halfTitle
+        shortHalf = snapshot.status == .halfFinished ? "HT" : snapshot.shortHalfTitle
+        isAddedTime = snapshot.status != .halfFinished && phase == .extraTime
+        if snapshot.status == .halfFinished {
+            progress = min(max(1 - (breakRemaining / Self.halfTimeBreakDuration), 0), 1)
+        } else {
+            progress = min(max(elapsed / Self.halfDuration, 0), 1)
+        }
 
         switch snapshot.status {
         case .ready:
@@ -151,15 +158,15 @@ struct MatchClockComplicationState {
             timeText = Self.format(Self.halfDuration)
             compactTimeText = "45"
         case .running, .paused:
-            subtitle = isAddedTime ? "Added time" : "Time left"
+            subtitle = Self.join(scorePrefix, isAddedTime ? "Added time" : "Time left")
             timeText = isAddedTime ? "+\(Self.format(addedTime))" : Self.format(remaining)
             compactTimeText = isAddedTime ? "+\(Self.compactMinutes(addedTime))" : Self.compactMinutes(remaining)
         case .halfFinished:
-            subtitle = "Half-time"
-            timeText = "+\(Self.format(addedTime))"
-            compactTimeText = "HT"
+            subtitle = Self.join(scorePrefix, breakRemaining > 0 ? "Break" : "Break done")
+            timeText = Self.format(breakRemaining)
+            compactTimeText = breakRemaining > 0 ? Self.compactMinutes(breakRemaining) : "HT"
         case .matchFinished:
-            subtitle = "Finished"
+            subtitle = Self.join(scorePrefix, "Finished")
             timeText = "+\(Self.format(addedTime))"
             compactTimeText = "FT"
         }
@@ -175,6 +182,12 @@ struct MatchClockComplicationState {
 
     private static func compactMinutes(_ interval: TimeInterval) -> String {
         String(max(Int(ceil(interval / 60)), 0))
+    }
+
+    private static func join(_ first: String?, _ second: String) -> String {
+        guard let first else { return second }
+
+        return "\(first) · \(second)"
     }
 }
 
@@ -203,6 +216,8 @@ struct StoredMatchClockSnapshot: Codable {
     let phase: StoredMatchClockPhase?
     let startedAt: Date?
     let elapsedBeforeStart: TimeInterval
+    let halfTimeBreakStartedAt: Date?
+    let score: StoredMatchScore?
 
     var halfTitle: String {
         half == 1 ? "1st Half" : "2nd Half"
@@ -227,6 +242,21 @@ struct StoredMatchClockSnapshot: Codable {
         case .ready:
             return .regulation
         }
+    }
+
+    func halfTimeBreakRemaining(at date: Date, duration: TimeInterval) -> TimeInterval {
+        guard let halfTimeBreakStartedAt else { return 0 }
+
+        return max(duration - date.timeIntervalSince(halfTimeBreakStartedAt), 0)
+    }
+}
+
+struct StoredMatchScore: Codable {
+    let home: Int
+    let away: Int
+
+    var compactTitle: String {
+        "H \(home)-\(away) A"
     }
 }
 

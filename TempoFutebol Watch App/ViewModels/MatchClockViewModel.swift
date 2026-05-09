@@ -12,19 +12,29 @@ import WidgetKit
 @MainActor
 final class MatchClockViewModel: ObservableObject {
     static let halfDuration: TimeInterval = 45 * 60
+    static let halfTimeBreakDuration: TimeInterval = 15 * 60
     static let runtimeWarningLeadTime: TimeInterval = 5 * 60
     private static let persistenceKey = MatchClockStorage.persistenceKey
 
     @Published private(set) var half: MatchHalf = .first
     @Published private(set) var status: MatchClockStatus = .ready
     @Published private(set) var phase: MatchClockPhase = .regulation
+    @Published private(set) var score: MatchScore = .zero
+    @Published private(set) var hapticSettings: MatchHapticSettings = .standard
+    @Published private(set) var lastSummary: MatchSummary?
     @Published private(set) var runtimeSessionSnapshot: MatchRuntimeSessionSnapshot = .inactive
     @Published private(set) var isRuntimeLimitWarningVisible = false
 
     private var startedAt: Date?
     private var elapsedBeforeStart: TimeInterval = 0
+    private var halfTimeBreakStartedAt: Date?
+    private var firstHalfElapsedDuration: TimeInterval?
+    private var heartRateTotal = 0
+    private var heartRateSampleCount = 0
+    private var maxHeartRate: Int?
     private var lastProcessedElapsedSecond: Int?
     private var hasPlayedRuntimeLimitWarning = false
+    private var hasPlayedHalfTimeBreakFinished = false
     private let userDefaults: UserDefaults
     private let now: () -> Date
     private let haptics: MatchHapticPlaying
@@ -59,7 +69,7 @@ final class MatchClockViewModel: ObservableObject {
     }
 
     var shouldTick: Bool {
-        status == .running
+        status == .running || isHalfTimeBreakActive
     }
 
     var primaryAction: PrimaryActionPresentation {
@@ -101,19 +111,24 @@ final class MatchClockViewModel: ObservableObject {
         let isAddedTime = phase == .extraTime
         let remaining = max(Self.halfDuration - elapsed, 0)
         let addedTime = max(elapsed - Self.halfDuration, 0)
+        let breakRemaining = halfTimeBreakRemaining(at: date)
+        let isBreakTimer = status == .halfFinished
 
         return MatchClockDisplayState(
             halfTitle: half.title,
             statusTitle: status.title,
-            isAddedTime: isAddedTime,
-            mainTime: isAddedTime ? addedTime : remaining,
-            mainLabel: isAddedTime ? "Added time" : "Time left",
+            isAddedTime: isBreakTimer ? false : isAddedTime,
+            isBreakTimer: isBreakTimer,
+            isBreakFinished: isBreakTimer && breakRemaining == 0,
+            mainTime: isBreakTimer ? breakRemaining : (isAddedTime ? addedTime : remaining),
+            mainLabel: isBreakTimer ? "Break" : (isAddedTime ? "Added time" : "Time left"),
             addedTime: addedTime
         )
     }
 
     func processTick(at date: Date) {
         guard status == .running else {
+            processHalfTimeBreakTick(at: date)
             lastProcessedElapsedSecond = nil
             isRuntimeLimitWarningVisible = false
             return
@@ -127,6 +142,63 @@ final class MatchClockViewModel: ObservableObject {
 
         playMilestoneHaptic(previousElapsedSecond: previousElapsedSecond, currentElapsedSecond: currentElapsedSecond)
         lastProcessedElapsedSecond = currentElapsedSecond
+    }
+
+    func halfTimeBreakStatusTitle(at date: Date? = nil) -> String? {
+        guard status == .halfFinished else { return nil }
+
+        let secondsRemaining = halfTimeBreakRemaining(at: date)
+        guard secondsRemaining > 0 else { return "Break done" }
+
+        let minutesRemaining = max(Int(ceil(secondsRemaining / 60)), 0)
+        return "Break · \(minutesRemaining)m"
+    }
+
+    func incrementHomeScore() {
+        score.home += 1
+        syncLastSummaryScore()
+        persistSnapshot()
+    }
+
+    func decrementHomeScore() {
+        guard score.home > 0 else { return }
+
+        score.home -= 1
+        syncLastSummaryScore()
+        persistSnapshot()
+    }
+
+    func incrementAwayScore() {
+        score.away += 1
+        syncLastSummaryScore()
+        persistSnapshot()
+    }
+
+    func decrementAwayScore() {
+        guard score.away > 0 else { return }
+
+        score.away -= 1
+        syncLastSummaryScore()
+        persistSnapshot()
+    }
+
+    func setCheckpointMinute(_ minute: Int, isEnabled: Bool) {
+        hapticSettings.setCheckpointMinute(minute, isEnabled: isEnabled)
+        persistSnapshot(shouldReloadComplications: false)
+    }
+
+    func setExtraTimeMinuteAlertsEnabled(_ isEnabled: Bool) {
+        hapticSettings.extraTimeMinuteAlertsEnabled = isEnabled
+        persistSnapshot(shouldReloadComplications: false)
+    }
+
+    func recordHeartRate(_ bpm: Int?) {
+        guard status == .running, let bpm, bpm > 0 else { return }
+
+        heartRateTotal += bpm
+        heartRateSampleCount += 1
+        maxHeartRate = max(maxHeartRate ?? bpm, bpm)
+        persistSnapshot(shouldReloadComplications: false)
     }
 
     func runPrimaryAction() {
@@ -165,9 +237,12 @@ final class MatchClockViewModel: ObservableObject {
         runtimeSession.stopKeepingAppActive()
 
         if half == .first {
+            firstHalfElapsedDuration = elapsedBeforeStart
             status = .halfFinished
+            startHalfTimeBreak()
             haptics.play(.halfTime)
         } else {
+            lastSummary = makeSummary(secondHalfElapsedDuration: elapsedBeforeStart)
             status = .matchFinished
             haptics.play(.whistle)
             haptics.play(.matchFinished)
@@ -183,6 +258,7 @@ final class MatchClockViewModel: ObservableObject {
         startedAt = now()
         status = .running
         phase = .extraTime
+        halfTimeBreakStartedAt = nil
         lastProcessedElapsedSecond = max(Int(currentElapsed.rounded(.down)), Int(Self.halfDuration))
         hasPlayedRuntimeLimitWarning = false
         isRuntimeLimitWarningVisible = false
@@ -197,8 +273,15 @@ final class MatchClockViewModel: ObservableObject {
         phase = .regulation
         startedAt = nil
         elapsedBeforeStart = 0
+        halfTimeBreakStartedAt = nil
+        firstHalfElapsedDuration = nil
+        score = .zero
+        heartRateTotal = 0
+        heartRateSampleCount = 0
+        maxHeartRate = nil
         lastProcessedElapsedSecond = nil
         hasPlayedRuntimeLimitWarning = false
+        hasPlayedHalfTimeBreakFinished = false
         isRuntimeLimitWarningVisible = false
         runtimeSession.stopKeepingAppActive()
         persistSnapshot()
@@ -207,6 +290,7 @@ final class MatchClockViewModel: ObservableObject {
     private func start() {
         status = .running
         startedAt = now()
+        halfTimeBreakStartedAt = nil
         lastProcessedElapsedSecond = max(Int(elapsedBeforeStart.rounded(.down)), 0)
         hasPlayedRuntimeLimitWarning = false
         isRuntimeLimitWarningVisible = false
@@ -229,13 +313,16 @@ final class MatchClockViewModel: ObservableObject {
             return
         }
 
+        firstHalfElapsedDuration = firstHalfElapsedDuration ?? elapsedBeforeStart
         half = nextHalf
         status = .running
         phase = .regulation
         startedAt = now()
         elapsedBeforeStart = 0
+        halfTimeBreakStartedAt = nil
         lastProcessedElapsedSecond = 0
         hasPlayedRuntimeLimitWarning = false
+        hasPlayedHalfTimeBreakFinished = false
         isRuntimeLimitWarningVisible = false
         runtimeSession.startKeepingAppActive()
         haptics.play(.start)
@@ -247,12 +334,78 @@ final class MatchClockViewModel: ObservableObject {
         startedAt = nil
     }
 
+    private var isHalfTimeBreakActive: Bool {
+        status == .halfFinished && halfTimeBreakStartedAt != nil && halfTimeBreakRemaining() > 0
+    }
+
     private func elapsed(at date: Date? = nil) -> TimeInterval {
         guard let startedAt else {
             return elapsedBeforeStart
         }
 
         return elapsedBeforeStart + (date ?? now()).timeIntervalSince(startedAt)
+    }
+
+    private func startHalfTimeBreak() {
+        halfTimeBreakStartedAt = now()
+        hasPlayedHalfTimeBreakFinished = false
+    }
+
+    private func halfTimeBreakRemaining(at date: Date? = nil) -> TimeInterval {
+        guard let halfTimeBreakStartedAt else { return 0 }
+
+        let elapsedBreak = (date ?? now()).timeIntervalSince(halfTimeBreakStartedAt)
+        return max(Self.halfTimeBreakDuration - elapsedBreak, 0)
+    }
+
+    private func processHalfTimeBreakTick(at date: Date) {
+        guard status == .halfFinished, halfTimeBreakRemaining(at: date) == 0 else { return }
+        guard !hasPlayedHalfTimeBreakFinished else { return }
+
+        hasPlayedHalfTimeBreakFinished = true
+        haptics.play(.halfTimeBreakFinished)
+        persistSnapshot()
+    }
+
+    private func makeSummary(secondHalfElapsedDuration: TimeInterval) -> MatchSummary {
+        let firstHalfDuration = firstHalfElapsedDuration ?? Self.halfDuration
+        let firstHalfAddedTime = max(firstHalfDuration - Self.halfDuration, 0)
+        let secondHalfAddedTime = max(secondHalfElapsedDuration - Self.halfDuration, 0)
+        let averageHeartRate: Int?
+
+        if heartRateSampleCount > 0 {
+            averageHeartRate = Int((Double(heartRateTotal) / Double(heartRateSampleCount)).rounded())
+        } else {
+            averageHeartRate = nil
+        }
+
+        return MatchSummary(
+            finishedAt: now(),
+            score: score,
+            firstHalfDuration: firstHalfDuration,
+            secondHalfDuration: secondHalfElapsedDuration,
+            firstHalfAddedTime: firstHalfAddedTime,
+            secondHalfAddedTime: secondHalfAddedTime,
+            totalMatchDuration: firstHalfDuration + secondHalfElapsedDuration,
+            averageHeartRate: averageHeartRate,
+            maxHeartRate: maxHeartRate
+        )
+    }
+
+    private func syncLastSummaryScore() {
+        guard status == .matchFinished, let summary = lastSummary else { return }
+
+        lastSummary = MatchSummary(
+            finishedAt: summary.finishedAt,
+            score: score,
+            firstHalfDuration: summary.firstHalfDuration,
+            secondHalfDuration: summary.secondHalfDuration,
+            firstHalfAddedTime: summary.firstHalfAddedTime,
+            secondHalfAddedTime: summary.secondHalfAddedTime,
+            totalMatchDuration: summary.totalMatchDuration,
+            averageHeartRate: summary.averageHeartRate,
+            maxHeartRate: summary.maxHeartRate
+        )
     }
 
     private func handleRuntimeSessionSnapshot(_ snapshot: MatchRuntimeSessionSnapshot) {
@@ -288,12 +441,12 @@ final class MatchClockViewModel: ObservableObject {
     }
 
     func playMilestoneHaptic(previousElapsedSecond: Int, currentElapsedSecond: Int) {
-        let checkpointSeconds = [600, 1200, 1800, 2400, 2700]
+        let checkpointSeconds = hapticSettings.checkpointSeconds
         if checkpointSeconds.contains(where: { previousElapsedSecond < $0 && currentElapsedSecond >= $0 }) {
             haptics.play(.timeCheckpoint)
         }
 
-        if phase == .extraTime {
+        if phase == .extraTime, hapticSettings.extraTimeMinuteAlertsEnabled {
             let previousExtraMinute = extraMinute(at: previousElapsedSecond)
             let currentExtraMinute = extraMinute(at: currentElapsedSecond)
             if currentExtraMinute > previousExtraMinute, currentExtraMinute > 0 {
@@ -315,20 +468,40 @@ private extension MatchClockViewModel {
         let phase: MatchClockPhase?
         let startedAt: Date?
         let elapsedBeforeStart: TimeInterval
+        let halfTimeBreakStartedAt: Date?
+        let firstHalfElapsedDuration: TimeInterval?
+        let score: MatchScore?
+        let hapticSettings: MatchHapticSettings?
+        let lastSummary: MatchSummary?
+        let heartRateTotal: Int?
+        let heartRateSampleCount: Int?
+        let maxHeartRate: Int?
+        let hasPlayedHalfTimeBreakFinished: Bool?
     }
 
-    func persistSnapshot() {
+    func persistSnapshot(shouldReloadComplications: Bool = true) {
         let snapshot = ClockSnapshot(
             half: half,
             status: status,
             phase: phase,
             startedAt: startedAt,
-            elapsedBeforeStart: elapsedBeforeStart
+            elapsedBeforeStart: elapsedBeforeStart,
+            halfTimeBreakStartedAt: halfTimeBreakStartedAt,
+            firstHalfElapsedDuration: firstHalfElapsedDuration,
+            score: score,
+            hapticSettings: hapticSettings,
+            lastSummary: lastSummary,
+            heartRateTotal: heartRateTotal,
+            heartRateSampleCount: heartRateSampleCount,
+            maxHeartRate: maxHeartRate,
+            hasPlayedHalfTimeBreakFinished: hasPlayedHalfTimeBreakFinished
         )
 
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         userDefaults.set(data, forKey: Self.persistenceKey)
-        reloadComplications()
+        if shouldReloadComplications {
+            reloadComplications()
+        }
     }
 
     func restoreSnapshot() {
@@ -343,6 +516,15 @@ private extension MatchClockViewModel {
         status = snapshot.status
         startedAt = snapshot.startedAt
         elapsedBeforeStart = snapshot.elapsedBeforeStart
+        halfTimeBreakStartedAt = snapshot.halfTimeBreakStartedAt
+        firstHalfElapsedDuration = snapshot.firstHalfElapsedDuration
+        score = snapshot.score ?? .zero
+        hapticSettings = snapshot.hapticSettings ?? .standard
+        lastSummary = snapshot.lastSummary
+        heartRateTotal = snapshot.heartRateTotal ?? 0
+        heartRateSampleCount = snapshot.heartRateSampleCount ?? 0
+        maxHeartRate = snapshot.maxHeartRate
+        hasPlayedHalfTimeBreakFinished = snapshot.hasPlayedHalfTimeBreakFinished ?? false
         phase = snapshot.phase ?? inferredPhase(for: snapshot.status, elapsed: elapsed())
     }
 

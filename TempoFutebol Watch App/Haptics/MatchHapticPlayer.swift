@@ -13,6 +13,7 @@ enum MatchHapticEvent: Equatable {
     case extraTimeMinute
     case whistle
     case halfTime
+    case halfTimeBreakFinished
     case matchFinished
     case buttonTap
     case runtimeLimitWarning
@@ -40,6 +41,8 @@ private extension MatchHapticEvent {
         case .whistle:
             return .success
         case .halfTime:
+            return .notification
+        case .halfTimeBreakFinished:
             return .notification
         case .matchFinished:
             return .notification
