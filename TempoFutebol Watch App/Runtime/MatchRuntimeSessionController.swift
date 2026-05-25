@@ -37,6 +37,7 @@ protocol MatchRuntimeSessionControlling: AnyObject {
     func stopKeepingAppActive()
 }
 
+@MainActor
 final class WatchExtendedRuntimeSessionController: NSObject, MatchRuntimeSessionControlling {
     private var session: WKExtendedRuntimeSession?
     private(set) var snapshot: MatchRuntimeSessionSnapshot = .inactive {
@@ -71,6 +72,7 @@ final class WatchExtendedRuntimeSessionController: NSObject, MatchRuntimeSession
     }
 }
 
+@MainActor
 extension WatchExtendedRuntimeSessionController: WKExtendedRuntimeSessionDelegate {
     func extendedRuntimeSessionDidStart(_ extendedRuntimeSession: WKExtendedRuntimeSession) {
         guard extendedRuntimeSession === session else { return }
